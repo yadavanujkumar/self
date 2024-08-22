@@ -4,123 +4,106 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import plotly.express as px
 import plotly.graph_objects as go
-from sklearn.linear_model import LinearRegression
+from sklearn.cluster import KMeans
 
-# Sample DataFrame for illustration
-data = {
-    "Date": ["2024-05-01", "2024-05-05", "2024-05-10", "2024-05-15", "2024-05-20"],
-    "Transaction": [-200, 300, -150, 500, -250]  # Negative for withdrawals, positive for deposits
-}
-df = pd.DataFrame(data)
+# Load the actual CSV data
+csv_file_path = 'analysis.csv'
+df = pd.read_csv(csv_file_path)
 
-# Convert Date to datetime format
-df['Date'] = pd.to_datetime(df['Date'])
+# Convert 'TXN Date' to datetime format
+df['TXN Date'] = pd.to_datetime(df['TXN Date'], format='%d-%m-%y')
+
+# Fill NaN values in 'DEBIT' and 'CREDIT' columns with 0
+df['DEBIT'] = df['DEBIT'].fillna(0)
+df['CREDIT'] = df['CREDIT'].fillna(0)
+
+# Calculate net transaction (debit as negative, credit as positive)
+df['Transaction'] = df['CREDIT'] - df['DEBIT']
 
 # Sort data by date
-df = df.sort_values('Date').reset_index(drop=True)
+df = df.sort_values('TXN Date').reset_index(drop=True)
 
-# Extract the days from the first transaction as a feature
-df['Days'] = (df['Date'] - df['Date'].min()).dt.days
+# Calculate rolling average (7-day window for weekly trend)
+df['Rolling_Transaction'] = df['Transaction'].rolling(window=7).mean()
 
-# Cleaned Data
-print(df.head())
-
-# Preparing the data for linear regression
-X = df['Days'].values.reshape(-1, 1)
-y = df['Transaction'].values
-
-# Initialize the model
-model = LinearRegression()
-
-# Fit the model
-model.fit(X, y)
-
-# Coefficients
-print(f"Intercept: {model.intercept_}")
-print(f"Slope: {model.coef_[0]}")
-
-# Predicting the next 30 days
-future_days = np.array(range(df['Days'].max() + 1, df['Days'].max() + 31)).reshape(-1, 1)
-predictions = model.predict(future_days)
-
-# Create a DataFrame for future predictions
-future_df = pd.DataFrame({
-    'Days': future_days.flatten(),
-    'Predicted_Transaction': predictions
-})
-
-# Convert back to dates for better visualization
-future_df['Date'] = df['Date'].max() + pd.to_timedelta(future_df['Days'] - df['Days'].max(), unit='d')
-
-print(future_df.head())
-
-### Visualization Part ###
-
-# Plotting with Seaborn and Matplotlib for historical data + regression line
+# Plot the rolling average
 plt.figure(figsize=(10, 6))
-
-# Scatter plot for historical data
-sns.scatterplot(x=df['Date'], y=df['Transaction'], label='Historical Transactions', color='blue')
-
-# Plotting regression line on historical data
-plt.plot(df['Date'], model.predict(X), color='red', label='Regression Line')
-
-# Adding predictions for the next 30 days
-sns.lineplot(x=future_df['Date'], y=future_df['Predicted_Transaction'], label='Predicted Transactions', color='green', linestyle='--')
-
-plt.title('Historical and Predicted Transactions with Regression Line')
+plt.plot(df['TXN Date'], df['Rolling_Transaction'], label='7-Day Rolling Average', color='orange')
+plt.scatter(df['TXN Date'], df['Transaction'], label='Original Data', color='blue', alpha=0.5)
+plt.title('Transaction Trend with 7-Day Rolling Average')
 plt.xlabel('Date')
 plt.ylabel('Transaction Amount')
 plt.legend()
-plt.grid(True)
 plt.show()
 
-### Plotly Interactive Plot ###
+### 3. Cluster Analysis: Transaction Clustering ###
 
-# Combine historical data with predictions for visualization
-combined_df = pd.concat([df[['Date', 'Transaction']], future_df[['Date', 'Predicted_Transaction']].rename(columns={"Predicted_Transaction": "Transaction"})])
+# Select features for clustering
+clustering_features = df[['DEBIT', 'CREDIT', 'BALANCE']].dropna()
 
-# Plot interactive plot with Plotly
-fig = px.line(combined_df, x='Date', y='Transaction', title='Historical and Predicted Transactions')
-fig.add_trace(go.Scatter(x=df['Date'], y=df['Transaction'], mode='markers', name='Historical Transactions'))
-fig.add_trace(go.Scatter(x=future_df['Date'], y=future_df['Predicted_Transaction'], mode='lines', name='Predicted Transactions', line=dict(dash='dash')))
+# Apply K-Means clustering
+kmeans = KMeans(n_clusters=3, random_state=42)
+clustering_features['Cluster'] = kmeans.fit_predict(clustering_features)
 
-fig.update_layout(title='Interactive Historical and Predicted Transactions with Linear Regression',
-                  xaxis_title='Date',
-                  yaxis_title='Transaction Amount',
-                  hovermode="x unified")
-
-fig.show()
-
-### Distribution Visualization (Histogram) ###
-
-# Enhanced Seaborn Histogram with KDE Overlay
+# Visualize the clusters
 plt.figure(figsize=(10, 6))
-
-# Plot histogram with KDE overlay for better distribution visualization
-sns.histplot(df['Transaction'], kde=True, bins=15, color='skyblue', edgecolor='black')
-
-# Add statistical lines (mean, median)
-mean_val = df['Transaction'].mean()
-median_val = df['Transaction'].median()
-
-# Draw vertical lines for the mean and median
-plt.axvline(mean_val, color='red', linestyle='--', label=f'Mean: {mean_val:.2f}')
-plt.axvline(median_val, color='green', linestyle='--', label=f'Median: {median_val:.2f}')
-
-# Customizing plot labels and title
-plt.title('Transaction Amount Distribution with KDE', fontsize=16)
-plt.xlabel('Transaction Amount', fontsize=12)
-plt.ylabel('Frequency', fontsize=12)
-plt.legend()
-
-# Show the plot
+sns.scatterplot(data=clustering_features, x='DEBIT', y='CREDIT', hue='Cluster', palette='Set1')
+plt.title('Transaction Clustering')
 plt.show()
 
-# Plotly Interactive Histogram with Box Plot for Transaction Distribution
-fig = px.histogram(df, x='Transaction', nbins=15, marginal="box", title="Transaction Amount Distribution")
-fig.update_traces(marker=dict(color='lightblue'))
-fig.update_layout(title='Enhanced Transaction Amount Distribution with Box Plot', xaxis_title='Transaction Amount', yaxis_title='Count')
+### 9. Advanced Visualization: Heatmaps and Plotly Visualizations ###
 
-# Show the interactive plot
+# Create a heatmap of transaction frequency by day of the week and hour of the day
+df['Hour'] = df['TXN Date'].dt.hour
+df['Day of Week'] = df['TXN Date'].dt.dayofweek
+
+heatmap_data = df.groupby(['Day of Week', 'Hour']).size().unstack()
+
+plt.figure(figsize=(12, 6))
+sns.heatmap(heatmap_data, cmap='coolwarm', annot=True)
+plt.title('Transaction Frequency by Day of Week and Hour')
+plt.xlabel('Hour of Day')
+plt.ylabel('Day of Week')
+plt.show()
+
+# Plotly visualization for Balance over Time
+fig = px.line(df, x='TXN Date', y='BALANCE', title='Balance over Time')
 fig.show()
+
+# Plotly scatter plot for Debit vs Credit with Balance
+fig = px.scatter(df, x='DEBIT', y='CREDIT', color='BALANCE', title='Debit vs Credit with Balance')
+fig.show()
+
+### 11. User Behavior Insights ###
+
+# Calculate spending habits over time
+df['Month'] = df['TXN Date'].dt.to_period('M')
+
+# Average monthly spending and income
+monthly_summary = df.groupby('Month').agg({
+    'DEBIT': 'sum',
+    'CREDIT': 'sum',
+    'Transaction': 'sum'
+}).reset_index()
+
+# Plot spending habits over time
+plt.figure(figsize=(10, 6))
+plt.plot(monthly_summary['Month'].astype(str), monthly_summary['DEBIT'], label='Total Debit (Spending)', color='red')
+plt.plot(monthly_summary['Month'].astype(str), monthly_summary['CREDIT'], label='Total Credit (Income)', color='green')
+plt.xticks(rotation=45)
+plt.xlabel('Month')
+plt.ylabel('Amount')
+plt.title('Spending and Income Over Time')
+plt.legend()
+plt.show()
+
+# Analyze typical behavior (e.g., frequency of transactions per month)
+behavior_summary = df.groupby('Month').size().reset_index(name='Transaction Count')
+
+plt.figure(figsize=(10, 6))
+plt.bar(behavior_summary['Month'].astype(str), behavior_summary['Transaction Count'], color='blue')
+plt.xticks(rotation=45)
+plt.xlabel('Month')
+plt.ylabel('Number of Transactions')
+plt.title('Transaction Frequency per Month')
+plt.show()
